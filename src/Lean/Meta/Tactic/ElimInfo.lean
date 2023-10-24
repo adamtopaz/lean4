@@ -95,15 +95,16 @@ where
 structure CustomEliminator where
   typeNames : Array Name
   elimInfo  : ElimInfo
+  induction : Bool
   deriving Inhabited, Repr
 
 structure CustomEliminators where
-  map : SMap (Array Name) ElimInfo := {}
+  map : SMap (Bool × Array Name) ElimInfo := {}
   deriving Inhabited, Repr
 
 def addCustomEliminatorEntry (es : CustomEliminators) (e : CustomEliminator) : CustomEliminators :=
   match es with
-  | { map := map } => { map := map.insert e.typeNames e.elimInfo }
+  | { map := map } => { map := map.insert (e.induction, e.typeNames) e.elimInfo }
 
 builtin_initialize customEliminatorExt : SimpleScopedEnvExtension CustomEliminator CustomEliminators ←
   registerSimpleScopedEnvExtension {
@@ -112,7 +113,8 @@ builtin_initialize customEliminatorExt : SimpleScopedEnvExtension CustomEliminat
     finalizeImport := fun { map := map } => { map := map.switch }
   }
 
-def mkCustomEliminator (declName : Name) : MetaM CustomEliminator := do
+def mkCustomEliminator (declName : Name) (induction : Bool := true) :
+    MetaM CustomEliminator := do
   let info ← getConstInfo declName
   let elimInfo ← getElimInfo declName
   forallTelescopeReducing info.type fun xs _ => do
@@ -134,29 +136,39 @@ def mkCustomEliminator (declName : Name) : MetaM CustomEliminator := do
         let xType ← inferType x
         let .const typeName .. := xType.getAppFn | throwError "unexpected eliminator target type{indentExpr xType}"
         typeNames := typeNames.push typeName
-    return { typeNames, elimInfo }
+    return { typeNames, elimInfo, induction }
 
-def addCustomEliminator (declName : Name) (attrKind : AttributeKind) : MetaM Unit := do
-  let e ← mkCustomEliminator declName
+def addCustomEliminator (declName : Name) (attrKind : AttributeKind) (induction : Bool := true) :
+    MetaM Unit := do
+  let e ← mkCustomEliminator declName induction
   customEliminatorExt.add e attrKind
 
 builtin_initialize
   registerBuiltinAttribute {
-    name  := `eliminator
-    descr := "custom eliminator for `cases` and `induction` tactics"
+    name  := `induction_eliminator
+    descr := "custom eliminator for `induction`"
     add   := fun declName _ attrKind => do
       discard <| addCustomEliminator declName attrKind |>.run {} {}
+  }
+
+builtin_initialize
+  registerBuiltinAttribute {
+    name  := `cases_eliminator
+    descr := "custom eliminator for `cases`"
+    add   := fun declName _ attrKind => do
+      discard <| addCustomEliminator declName attrKind false |>.run {} {}
   }
 
 def getCustomEliminators : CoreM CustomEliminators := do
   return customEliminatorExt.getState (← getEnv)
 
-def getCustomEliminator? (targets : Array Expr) : MetaM (Option ElimInfo) := do
+def getCustomEliminator? (targets : Array Expr) (induction : Bool := true) :
+    MetaM (Option ElimInfo) := do
   let mut key := #[]
   for target in targets do
     let targetType := (← instantiateMVars (← inferType target)).headBeta
     let .const declName .. := targetType.getAppFn | return none
     key := key.push declName
-  return customEliminatorExt.getState (← getEnv) |>.map.find? key
+  return customEliminatorExt.getState (← getEnv) |>.map.find? (induction, key)
 
 end Lean.Meta

@@ -495,7 +495,7 @@ def getInductiveValFromMajor (major : Expr) : TacticM InductiveVal :=
 -- `optElimId` is of the form `("using" ident)?`
 private def getElimNameInfo (optElimId : Syntax) (targets : Array Expr) (induction : Bool): TacticM ElimInfo := do
   if optElimId.isNone then
-    if let some elimInfo ← getCustomEliminator? targets then
+    if let some elimInfo ← getCustomEliminator? targets induction then
       return elimInfo
     unless targets.size == 1 do
       throwError "eliminator must be provided when multiple targets are used (use 'using <eliminator-name>'), and no default eliminator has been registered using attribute `[eliminator]`"
